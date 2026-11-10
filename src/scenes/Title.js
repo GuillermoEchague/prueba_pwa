@@ -5,7 +5,7 @@ import { FightView } from './fight-view.js';
 import { FixedStep, dispatchEvents } from './fixed-step.js';
 import { text, createMenu, C } from './ui.js';
 import { settings, saveSettings, DIFF_NAMES } from '../settings.js';
-import { canInstall, needsIosHelp, promptInstall, showIosHelp, onInstallChange, isStandalone } from '../pwa.js';
+import { canInstall, needsIosHelp, promptInstall, showIosHelp, onInstallChange, isStandalone, isIOS, toast } from '../pwa.js';
 import { isTouchDevice } from '../input/touch.js';
 import { stopVoice } from '../audio/sfx.js';
 
@@ -40,6 +40,8 @@ export class Title extends Phaser.Scene {
         { label: () => `LOCUTOR: ${yes(settings.voice)}`, action: () => { settings.voice = !settings.voice; saveSettings(); } },
         { label: 'INSTALAR JUEGO', hidden: () => !canInstall(), action: () => promptInstall() },
         { label: 'CÓMO INSTALAR', hidden: () => canInstall() || !needsIosHelp(), action: () => showIosHelp(true) },
+        // Solo en la app instalada o en pantalla completa (en una pestaña normal se cierra la pestaña).
+        { label: () => (this.confirmExit ? '¿SALIR? TOCA OTRA VEZ' : 'SALIR'), hidden: () => !isStandalone() && !this.scale.isFullscreen, action: () => this.exitGame() },
       ],
       depth: 52,
     });
@@ -71,6 +73,31 @@ export class Title extends Phaser.Scene {
       try { this.scale.startFullscreen(); } catch { /* algunos navegadores no lo permiten */ }
     }
     this.scene.start('Select', { mode });
+  }
+
+  exitGame() {
+    // Primer toque: pide confirmar, para no salir por accidente.
+    if (!this.confirmExit) {
+      this.confirmExit = true;
+      this.time.delayedCall(2500, () => { this.confirmExit = false; if (this.menu.alive) this.menu.refresh(); });
+      return;
+    }
+    this.confirmExit = false;
+    stopVoice();
+    // Jugando en el navegador a pantalla completa: solo se sale de la pantalla completa.
+    if (!isStandalone()) {
+      this.scale.stopFullscreen();
+      this.time.delayedCall(200, () => this.menu.rebuild());
+      return;
+    }
+    // App instalada: se intenta cerrar la ventana. Android y computador lo permiten;
+    // iPhone no deja que una página se cierre sola, así que se explica cómo hacerlo.
+    window.close();
+    setTimeout(() => {
+      toast(isIOS()
+        ? 'Para salir, desliza hacia arriba desde el borde inferior de la pantalla.'
+        : 'Para salir, usa el botón de inicio o el de atrás de tu teléfono.');
+    }, 400);
   }
 
   update(time, delta) {
